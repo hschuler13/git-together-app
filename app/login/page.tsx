@@ -49,7 +49,12 @@ export default function LoginPage() {
 
   return (
     <>
-      <button onClick={signInWithGithub}>Sign in With Github</button>
+    <div className="flex flex-col items-center justify-center min-h-screen text-center bg-gray-50 w-screen">
+      <h1 className="text-5xl font-bold mb-4 pb-[1%]">Welcome to gitTogether</h1>
+      <button onClick={signInWithGithub} className=" bg-black text-white rounded-lg hover:bg-gray-700 p-2.5">
+        Sign in with GitHub
+      </button>
+    </div>
     </>
   );
 }

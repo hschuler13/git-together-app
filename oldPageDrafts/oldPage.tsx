@@ -1,5 +1,5 @@
 "use client";
-import { createClient } from "../utils/supabase/client";
+import { createClient } from "../../utils/supabase/client";
 import { useEffect, useState } from "react";
 
 interface GitHubIssue {
@@ -30,7 +30,7 @@ export default function Home() {
   const [userLanguages, setUserLanguages] = useState<any[]>([]);
 
   // Filter issues created within the last X months (adjust as needed)
-  const MAX_AGE_MONTHS = 6;
+  const MAX_AGE_MONTHS = 3;
     
   /* const [loading, setLoading] = useState(true);
   const [issues, setIssues] = useState<any[]>([]);
@@ -59,28 +59,7 @@ export default function Home() {
       }
     });
 
-    //loadIssues();
-
-    async function fetchIssues() {
-      try {
-        const response = await fetch("/api/github-issues");
-        const data = await response.json();
-
-        if (data.success) {
-          const recentIssues = filterRecentIssues(data.issues);
-          setIssues(recentIssues);
-        } else {
-          setError(data.error || "Failed to fetch issues");
-        }
-      } catch (err) {
-        setError("An error occurred while fetching issues");
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchIssues();
+    loadIssues();
 
     return () => subscription.unsubscribe();
   }, []);
@@ -105,6 +84,29 @@ export default function Home() {
     });
   };
 
+  useEffect(() => {
+    async function fetchIssues() {
+      try {
+        const response = await fetch("/api/github-issues");
+        const data = await response.json();
+
+        if (data.success) {
+          const recentIssues = filterRecentIssues(data.issues);
+          setIssues(recentIssues);
+        } else {
+          setError(data.error || "Failed to fetch issues");
+        }
+      } catch (err) {
+        setError("An error occurred while fetching issues");
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchIssues();
+  }, []);
+
   async function signOut() {
     const { error } = await supabase.auth.signOut();
     if (error) {
@@ -115,10 +117,10 @@ export default function Home() {
     }
   }
 
-  /*async function loadIssues() {
+  async function loadIssues() {
     const { data } = await supabase.from("issues").select("*");
     if (data) setIssues(data);
-  }*/
+  }
 
   // Fetch user preferences from the profiles table
   async function fetchUserPreferences(userId: string) {
@@ -190,8 +192,7 @@ export default function Home() {
     }
   }
 
-  // TODO: pls fix this girl !!
-  /*async function sortLanguages() {
+  async function sortLanguages() {
     const { data: issues } = await supabase.from("issues").select("*");
     const { data: profiles } = await supabase.from("profiles").select("*");
 
@@ -214,7 +215,7 @@ export default function Home() {
       }
       const match2 = 0;
     });
-  }*/
+  }
 
   if (loading) {
     return (
