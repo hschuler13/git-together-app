@@ -41,6 +41,7 @@ interface GitHubIssue {
   hasGFILabel: boolean;
   dateCreated: string;
   daysOpen: number;
+  score: number;
 }
 
 async function fetchWithAuth(url: string) {
@@ -139,7 +140,8 @@ async function fetchIssuesFromRepository(repo: string): Promise<GitHubIssue[]> {
         numberOfAssignees: issue.assignees.length,
         hasGFILabel: true,
         dateCreated: issue.created_at,
-        daysOpen: calculateDaysOpen(issue.created_at)
+        daysOpen: calculateDaysOpen(issue.created_at),
+        score: 0
       }));
     
     return processedIssues;
@@ -173,3 +175,4 @@ export async function GET() {
     );
   }
 }
+

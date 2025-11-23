@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 
 export default function PreferencesPage() {
-    const router = useRouter();
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPreferences, setSelectedPreferences] = useState([]);
 
@@ -44,7 +44,7 @@ export default function PreferencesPage() {
   };
 
   function skipHome() {
-    router.push('/home');
+    router.push("/home");
   }
 
   return (
@@ -104,8 +104,10 @@ export default function PreferencesPage() {
         </div>
 
         <div className="mt-4 mb-4">
-            <Button className="mr-4" onClick={skipHome}>Skip</Button>
-            <Button className="mr-4">Submit</Button>
+          <Button className="mr-4" onClick={skipHome}>
+            Skip
+          </Button>
+          <Button className="mr-4">Submit</Button>
         </div>
       </div>
     </div>

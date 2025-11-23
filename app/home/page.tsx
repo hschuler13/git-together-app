@@ -17,6 +17,7 @@ interface GitHubIssue {
   hasGFILabel: boolean;
   dateCreated: string;
   daysOpen: number;
+  score: number;
 }
 
 export default function Home() {
@@ -30,37 +31,33 @@ export default function Home() {
   const [userLanguages, setUserLanguages] = useState<any[]>([]);
 
   // Filter issues created within the last X months (adjust as needed)
-  const MAX_AGE_MONTHS = 6;
+  const MAX_AGE_MONTHS = 12;
     
-  /* const [loading, setLoading] = useState(true);
-  const [issues, setIssues] = useState<any[]>([]);
-  const [topIssues, setTopIssues] = useState<any[]>([]); */
-  
   useEffect(() => {
-    // fetch session and watch for auth changes
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Handle session changes
+    const handleSessionChange = (session: any) => {
       setSession(session);
-      setLoading(false);
       if (session?.user) {
         const username = session.user.user_metadata?.user_name;
         if (username) fetchUserLanguages(username);
-        fetchUserPreferences(session.user.id); // fetch preferences
+        fetchUserPreferences(session.user.id);
       }
+    };
+
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      handleSessionChange(session);
+      setLoading(false);
     });
 
+    // Watch for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      setSession(session);
-      if (session?.user) {
-        const username = session.user.user_metadata?.user_name;
-        if (username) fetchUserLanguages(username);
-        fetchUserPreferences(session.user.id); // fetch preferences on change too
-      }
+      handleSessionChange(session);
     });
 
-    //loadIssues();
-
+    // Fetch issues
     async function fetchIssues() {
       try {
         const response = await fetch("/api/github-issues");
@@ -85,15 +82,12 @@ export default function Home() {
     return () => subscription.unsubscribe();
   }, []);
 
-  /*useEffect(() => {
-    if (issues && issues.length > 0) {
-      const k = 5;
-      const top = [...issues]
-        .sort((a, b) => Number(b.newcomer_score) - Number(a.newcomer_score))
-        .slice(0, k);
-      setTopIssues(top);
+  // Sort issues when all required data is available
+  useEffect(() => {
+    if (issues.length > 0 && userLanguages.length > 0 && preferences) {
+      sortLanguages();
     }
-  }, [issues]);*/
+  }, [issues, userLanguages, preferences]);
 
   const filterRecentIssues = (issues: GitHubIssue[]): GitHubIssue[] => {
     const monthsAgo = new Date();
@@ -114,11 +108,6 @@ export default function Home() {
       window.location.href = "/login";
     }
   }
-
-  /*async function loadIssues() {
-    const { data } = await supabase.from("issues").select("*");
-    if (data) setIssues(data);
-  }*/
 
   // Fetch user preferences from the profiles table
   async function fetchUserPreferences(userId: string) {
@@ -190,31 +179,68 @@ export default function Home() {
     }
   }
 
-  // TODO: pls fix this girl !!
-  /*async function sortLanguages() {
-    const { data: issues } = await supabase.from("issues").select("*");
-    const { data: profiles } = await supabase.from("profiles").select("*");
+function sortLanguages() {
+  // Weights for different scoring factors (should sum to 1.0)
+  const RECENCY_WEIGHT = 0.20;
+  const LANGUAGE_WEIGHT = 0.35;
+  const TOPIC_WEIGHT = 0.45;
 
-    const k1 = 0.2;
-    const k2 = 0.35;
-    const k3 = 0;
+  // Maximum days we consider for recency scoring
+  const MAX_DAYS_FOR_SCORING = 180;
 
-    issues!.forEach((issue) => {
-      var score = 0;
-      if (issue!.days_open <= 90) {
-        score += issue.days_open * k1;
-      }
-      const match = userLanguages.some(
-        (l) => l.lang.toLowerCase() === issue.primary_language.toLowerCase()
+  const scoredIssues = issues.map((issue) => {
+    let score = 0;
+
+    // 1. RECENCY SCORE (0-20 points)
+    // Newer issues get higher scores, capped at MAX_DAYS_FOR_SCORING
+    const daysForScore = Math.min(issue.daysOpen, MAX_DAYS_FOR_SCORING);
+    const recencyScore = (1 - daysForScore / MAX_DAYS_FOR_SCORING) * 100;
+    score += recencyScore * RECENCY_WEIGHT;
+
+    // 2. LANGUAGE MATCH SCORE (0-35 points)
+    const languageMatch = userLanguages.find(
+      (l) => l.lang.toLowerCase() === issue.primaryLanguage.toLowerCase()
+    );
+    
+    if (languageMatch && userLanguages.length > 0) {
+      const langIndex = userLanguages.findIndex(
+        (l) => l.lang.toLowerCase() === issue.primaryLanguage.toLowerCase()
       );
-      if (match) {
-        score +=
-          userLanguages.findIndex((l) => l.lang === issue.primary_language) *
-          k2;
+      // Top language gets 100, decreasing linearly
+      const languageScore = ((userLanguages.length - langIndex) / userLanguages.length) * 100;
+      score += languageScore * LANGUAGE_WEIGHT;
+    }
+
+    // 3. TOPIC MATCH SCORE (0-45 points)
+    if (preferences && preferences.length > 0) {
+      const topicMatches = issue.repositoryTopics.filter((topic) =>
+        preferences.some((pref: string) => 
+          pref.toLowerCase() === topic.toLowerCase()
+        )
+      );
+      
+      if (topicMatches.length > 0) {
+        // Score based on percentage of user preferences matched
+        const topicScore = Math.min((topicMatches.length / preferences.length) * 100, 100);
+        score += topicScore * TOPIC_WEIGHT;
       }
-      const match2 = 0;
-    });
-  }*/
+    }
+
+    return { ...issue, score: Math.round(score * 100) / 100 };
+  });
+
+  // Sort by score descending and update state
+  const sortedIssues = scoredIssues.sort((a, b) => b.score - a.score);
+  setIssues(sortedIssues);
+  
+  console.log("Top 5 scored issues:", sortedIssues.slice(0, 5).map(i => ({
+    title: i.issueTitle,
+    score: i.score,
+    language: i.primaryLanguage,
+    topics: i.repositoryTopics,
+    days: i.daysOpen
+  })));
+}
 
   if (loading) {
     return (
@@ -239,23 +265,6 @@ export default function Home() {
                 Sign Out
               </button>
             </div>
-
-            {/*<div className="space-y-4 grid-rows-3">
-              <h2 className="text-2xl font-semibold">Issues</h2>
-              <div className="border border-black rounded-md row-span-2">
-                {topIssues.map((issue) => (
-                  <a href={issue.url} key={issue.id}>
-                    <div className="p-4 border rounded-lg shadow-sm hover:shadow-md transition-shadow">
-                      <h3 className="font-semibold text-lg">{issue.title}</h3>
-                      {issue.body && (
-                        <p className="text-gray-600 mt-2">{issue.body}</p>
-                      )}
-                    </div>
-                  </a>
-                ))}
-              </div>
-
-            </div>*/}
 
             <div className="space-y-6">
               {issues.map((issue) => (

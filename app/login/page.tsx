@@ -58,3 +58,5 @@ export default function LoginPage() {
     </>
   );
 }
+
+// TODO: add video background (someone coding or something like that)
