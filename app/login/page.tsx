@@ -54,7 +54,7 @@ export default function LoginPage() {
         src = {"src\assets\GitTogetherText2.png"}
         alt = "GitTogether logo"
         />
-      <h1 className="text-5xl font-bold mb-4 pb-[1%] text-blue-50">Welcome to gitTogether</h1>
+      <h1 className="text-5xl font-bold mb-4 pb-[1%] text-cyan-100">Welcome to gitTogether</h1>
       <button onClick={signInWithGithub} className=" bg-[#01817d] text-cyan-100 rounded-lg hover:bg-[#00beb8] p-2.5">
         Sign in with GitHub
       </button>
