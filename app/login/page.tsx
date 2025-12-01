@@ -49,9 +49,13 @@ export default function LoginPage() {
 
   return (
     <>
-    <div className="flex flex-col items-center justify-center min-h-screen text-center bg-gray-50 w-screen">
-      <h1 className="text-5xl font-bold mb-4 pb-[1%]">Welcome to gitTogether</h1>
-      <button onClick={signInWithGithub} className=" bg-black text-white rounded-lg hover:bg-gray-700 p-2.5">
+    <div className="flex flex-col items-center justify-center min-h-screen text-center bg-linear-to-r from-[#001e1e] to-[#014848] w-screen">
+       <img className = "logo size-100" 
+        src = {"src\assets\GitTogetherText2.png"}
+        alt = "GitTogether logo"
+        />
+      <h1 className="text-5xl font-bold mb-4 pb-[1%] text-blue-50">Welcome to gitTogether</h1>
+      <button onClick={signInWithGithub} className=" bg-[#01817d] text-cyan-100 rounded-lg hover:bg-[#00beb8] p-2.5">
         Sign in with GitHub
       </button>
     </div>
