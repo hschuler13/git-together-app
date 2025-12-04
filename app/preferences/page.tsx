@@ -48,30 +48,30 @@ export default function PreferencesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
+    <div className="min-h-screen bg-linear-to-r from-[#001e1e] to-[#014848] p-8">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">Preferences</h1>
+        <h1 className="text-3xl font-bold text-cyan-100">Preferences</h1>
 
         <div className="relative mb-6">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-cyan-50 w-5 h-5" />
           <input
             type="text"
             placeholder="Search preferences..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-3 border bg-[#20746e] border-cyan-50 text-cyan-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#8afffb] focus:border-transparent"
           />
         </div>
 
         {searchQuery && (
-          <p className="text-sm text-gray-600 mb-4">
+          <p className="text-sm text-cyan-50 mb-4">
             {filteredPreferences.length} result
             {filteredPreferences.length !== 1 ? "s" : ""} found
           </p>
         )}
 
         {selectedPreferences.length > 0 && (
-          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4 ">
+          <div className="mt-4 p-4 bg-cyan-100 border border-blue-200 rounded-lg mb-4 ">
             <p className="text-sm text-blue-900">
               {selectedPreferences.length} preference
               {selectedPreferences.length !== 1 ? "s" : ""} selected
@@ -87,8 +87,8 @@ export default function PreferencesPage() {
                 onClick={() => togglePreference(pref.id)}
                 className={`px-4 py-2 rounded-lg font-medium transition-all ${
                   selectedPreferences.includes(pref.id)
-                    ? "bg-blue-500 text-white hover:bg-blue-600"
-                    : "bg-white text-gray-700 border border-gray-300 hover:border-gray-400"
+                    ? "bg-[#01817d] text-white hover:bg-[#00beb8] border border-cyan-50"
+                    : "bg-cyan-100 text-[#003a38] border border-[#003a38] hover:bg-[#7cdeda] hover:border-gray-400"
                 }`}
               >
                 {pref.name}
@@ -96,7 +96,7 @@ export default function PreferencesPage() {
             ))
           ) : (
             <div className="w-full text-center py-12">
-              <p className="text-gray-500">
+              <p className="text-cyan-50">
                 No preferences found matching "{searchQuery}"
               </p>
             </div>
@@ -104,10 +104,10 @@ export default function PreferencesPage() {
         </div>
 
         <div className="mt-4 mb-4">
-          <Button className="mr-4" onClick={skipHome}>
+          <Button className="mr-4 bg-[#016764] border border-cyan-50 text-cyan-50 hover:bg-[#209092] hover:border-[#8afffb]" onClick={skipHome}>
             Skip
           </Button>
-          <Button className="mr-4">Submit</Button>
+          <Button className="mr-4 bg-[#016764] border border-cyan-50 text-cyan-50 hover:bg-[#209092] hover:border-[#8afffb]">Submit</Button>
         </div>
       </div>
     </div>
