@@ -1,23 +1,21 @@
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
-import { AppSidebar } from "@/components/app-sidebar"
- 
-export default function Layout({ children }: { children: React.ReactNode }) {
+"use client";
+import { createClient } from "../utils/supabase/client";
+import { useEffect, useState } from "react";
+import {
+  DataContext,
+  GitHubIssue,
+  Repository,
+} from "@/app/contexts/DataContext";
+
+export default function Layout({
+  children
+}: {
+  children: React.ReactNode;
+
+}) {
+
   return (
-
-    <main>
-      {children}
-    </main>
-  
-  )
+      <>{children}</>
+     
+  );
 }
-
-// old layout, idk if i want a sidebar yet 
-{
-      /*<SidebarProvider>
-        <AppSidebar />
-        <main>
-          <SidebarTrigger />
-          {children}
-        </main>
-      </SidebarProvider>*/
-    }

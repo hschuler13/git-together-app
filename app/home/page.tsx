@@ -1,6 +1,7 @@
 "use client";
+import { LogOut, Settings } from "lucide-react";
 import { createClient } from "../utils/supabase/client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 
 interface GitHubIssue {
   issueUrl: string;
@@ -29,45 +30,53 @@ interface Repository {
   averageScore: number;
 }
 
+interface Mentor {
+  id: string;
+  username: string;
+  email: string;
+  languages?: { lang: string; percentage: string }[];
+  preferences?: string[];
+  score?: number;
+}
+
 export default function Home() {
   const supabase = createClient();
 
-  const [issues, setIssues] = useState<GitHubIssue[]>([]);
-  const [repositories, setRepositories] = useState<Repository[]>([]);
+  const [rawIssues, setRawIssues] = useState<GitHubIssue[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<any>(null);
   const [preferences, setPreferences] = useState<any>(null);
   const [userLanguages, setUserLanguages] = useState<any[]>([]);
+  const [rawMentors, setRawMentors] = useState<Mentor[]>([]);
+  const [username, setUsername] = useState<string>("");
 
-  // Filter issues created within the last X months (adjust as needed)
   const MAX_AGE_MONTHS = 12;
-    
+
   useEffect(() => {
-    // Handle session changes
-    const handleSessionChange = (session: any) => {
+    const handleSessionChange = async (session: any) => {
       setSession(session);
       if (session?.user) {
-        const username = session.user.user_metadata?.user_name;
-        if (username) fetchUserLanguages(username);
+        const fetchedUsername = await getUsernameFromProfile(session.user.id);
+        if (fetchedUsername) {
+          setUsername(fetchedUsername);
+          fetchUserLanguages(fetchedUsername);
+        }
         fetchUserPreferences(session.user.id);
+        fetchMentors(session.user.id);
       }
     };
 
-    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       handleSessionChange(session);
-      setLoading(false);
     });
 
-    // Watch for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       handleSessionChange(session);
     });
 
-    // Fetch issues
     async function fetchIssues() {
       try {
         const response = await fetch("/api/github-issues");
@@ -75,7 +84,7 @@ export default function Home() {
 
         if (data.success) {
           const recentIssues = filterRecentIssues(data.issues);
-          setIssues(recentIssues);
+          setRawIssues(recentIssues);
         } else {
           setError(data.error || "Failed to fetch issues");
         }
@@ -92,13 +101,6 @@ export default function Home() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Sort issues when all required data is available
-  useEffect(() => {
-    if (issues.length > 0 && userLanguages.length > 0 && preferences) {
-      sortLanguages();
-    }
-  }, [issues, userLanguages, preferences]);
-
   const filterRecentIssues = (issues: GitHubIssue[]): GitHubIssue[] => {
     const monthsAgo = new Date();
     monthsAgo.setMonth(monthsAgo.getMonth() - MAX_AGE_MONTHS);
@@ -108,6 +110,26 @@ export default function Home() {
       return issueDate >= monthsAgo;
     });
   };
+
+  async function getUsernameFromProfile(userId: string): Promise<string | null> {
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("username")
+        .eq("id", userId)
+        .single();
+
+      if (error) {
+        console.error("Error fetching username from profile:", error);
+        return null;
+      }
+
+      return data?.username || null;
+    } catch (error) {
+      console.error("Error fetching username:", error);
+      return null;
+    }
+  }
 
   async function signOut() {
     const { error } = await supabase.auth.signOut();
@@ -119,7 +141,6 @@ export default function Home() {
     }
   }
 
-  // Fetch user preferences from the profiles table
   async function fetchUserPreferences(userId: string) {
     try {
       const { data, error } = await supabase
@@ -137,101 +158,240 @@ export default function Home() {
     }
   }
 
-  // Fetch top languages based on user's top 10 non-forked repos
+  async function fetchMentors(currentUserId: string) {
+    try {
+      console.log("Fetching mentors for user:", currentUserId);
+
+      const { data: currentUserData, error: currentUserError } = await supabase
+        .from("profiles")
+        .select("mentor_status")
+        .eq("id", currentUserId)
+        .single();
+
+      if (currentUserError) {
+        console.error("Error fetching current user:", currentUserError);
+        throw currentUserError;
+      }
+
+      const isCurrentUserMentor = currentUserData?.mentor_status === true;
+      console.log("Is current user a mentor?", isCurrentUserMentor);
+
+      let query = supabase
+        .from("profiles")
+        .select("id, username, email, preferences")
+        .eq("mentor_status", true);
+
+      if (isCurrentUserMentor) {
+        query = query.neq("id", currentUserId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error("Supabase error details:", error);
+        throw error;
+      }
+
+      console.log("Fetched mentors:", data);
+      console.log("Number of mentors found:", data?.length || 0);
+
+      const mentorsWithLanguages = await Promise.all(
+        (data || []).map(async (mentor) => {
+          const languages = await fetchMentorLanguages(mentor.username);
+          return { ...mentor, languages };
+        })
+      );
+
+      setRawMentors(mentorsWithLanguages);
+    } catch (error) {
+      console.error("Error fetching mentors:", error);
+    }
+  }
+
+  async function fetchMentorLanguages(username: string) {
+    try {
+      console.log("Fetching languages for mentor:", username);
+
+      const response = await fetch("/api/mentor-languages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error("Error fetching mentor languages:", data.error);
+        return [];
+      }
+
+      console.log(`Mentor ${username}'s top languages:`, data.languages);
+      return data.languages;
+    } catch (error) {
+      console.error(`Error fetching languages for mentor ${username}:`, error);
+      return [];
+    }
+  }
+
   async function fetchUserLanguages(username: string) {
     try {
-      console.log("Fetching languages for:", username);
+      console.log("Fetching languages for user:", username);
 
-      const repoRes = await fetch(
-        `https://api.github.com/users/${username}/repos?per_page=100`
-      );
-      const repos = await repoRes.json();
+      const response = await fetch("/api/user-languages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username }),
+      });
 
-      if (!Array.isArray(repos)) {
-        console.error("Unexpected GitHub API response:", repos);
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error("Error fetching user languages:", data.error);
         return;
       }
 
-      const nonForked = repos.filter((repo) => !repo.fork);
-
-      // sort by stars, take top 10
-      const topRepos = nonForked
-        .sort((a, b) => b.stargazers_count - a.stargazers_count)
-        .slice(0, 10);
-
-      const globalLanguageBytes: Record<string, number> = {};
-
-      for (const repo of topRepos) {
-        const langRes = await fetch(repo.languages_url);
-        const languages = await langRes.json();
-
-        for (const [lang, bytes] of Object.entries(languages)) {
-          globalLanguageBytes[lang] =
-            (globalLanguageBytes[lang] || 0) + (bytes as number);
-        }
-      }
-
-      const totalBytes = Object.values(globalLanguageBytes).reduce(
-        (a, b) => a + b,
-        0
-      );
-      const languagePercentages = Object.entries(globalLanguageBytes)
-        .map(([lang, bytes]) => ({
-          lang,
-          percentage: ((bytes / totalBytes) * 100).toFixed(2),
-        }))
-        .sort((a, b) => Number(b.percentage) - Number(a.percentage));
-
-      console.log("User's top languages (top 10 repos):", languagePercentages);
-      setUserLanguages(languagePercentages);
+      console.log("User's top languages (top 10 repos):", data.languages);
+      setUserLanguages(data.languages);
     } catch (error) {
       console.error("Error fetching user languages:", error);
     }
   }
 
-  function sortLanguages() {
-    // Weights for different scoring factors (should sum to 1.0)
-    const RECENCY_WEIGHT = 0.20;
-    const LANGUAGE_WEIGHT = 0.35;
-    const TOPIC_WEIGHT = 0.45;
+  const handleEmailMentor = (mentorEmail: string, mentorName: string) => {
+    const subject = encodeURIComponent("Mentorship Inquiry");
+    const body = encodeURIComponent(
+      `Hi ${mentorName},\n\nI came across your profile and would love to connect with you regarding mentorship opportunities.\n\nBest regards`
+    );
+    window.location.href = `mailto:${mentorEmail}?subject=${subject}&body=${body}`;
+  };
 
-    // Maximum days we consider for recency scoring
-    const MAX_DAYS_FOR_SCORING = 180;
+  const mentors = useMemo(() => {
+    if (rawMentors.length === 0 || userLanguages.length === 0) {
+      return rawMentors;
+    }
 
-    const scoredIssues = issues.map((issue) => {
+    const LANGUAGE_WEIGHT = 0.55;
+    const PREFERENCE_WEIGHT = 0.45;
+
+    const userPreferences = Array.isArray(preferences) ? preferences : [];
+
+    const scoredMentors = rawMentors.map((mentor) => {
       let score = 0;
 
-      // 1. RECENCY SCORE (0-20 points)
-      // Newer issues get higher scores, capped at MAX_DAYS_FOR_SCORING
-      const daysForScore = Math.min(issue.daysOpen, MAX_DAYS_FOR_SCORING);
+      if (mentor.languages && mentor.languages.length > 0) {
+        let languageScore = 0;
+        let matchCount = 0;
+
+        userLanguages.forEach((userLang, userIndex) => {
+          const mentorLangMatch = mentor.languages!.find(
+            (mentorLang) =>
+              mentorLang.lang.toLowerCase() === userLang.lang.toLowerCase()
+          );
+
+          if (mentorLangMatch) {
+            const userWeight =
+              (userLanguages.length - userIndex) / userLanguages.length;
+            const mentorWeight = Number(mentorLangMatch.percentage) / 100;
+
+            languageScore += userWeight * mentorWeight * 100;
+            matchCount++;
+          }
+        });
+
+        if (matchCount > 0) {
+          languageScore = languageScore / userLanguages.length;
+          score += languageScore * LANGUAGE_WEIGHT;
+        }
+      }
+
+      if (
+        userPreferences.length > 0 &&
+        mentor.preferences &&
+        Array.isArray(mentor.preferences) &&
+        mentor.preferences.length > 0
+      ) {
+        const preferenceMatches = mentor.preferences.filter((mentorPref) =>
+          userPreferences.some(
+            (userPref: string) =>
+              userPref.toLowerCase() === mentorPref.toLowerCase()
+          )
+        );
+
+        if (preferenceMatches.length > 0) {
+          const preferenceScore = Math.min(
+            (preferenceMatches.length /
+              Math.max(userPreferences.length, mentor.preferences.length)) *
+              100,
+            100
+          );
+          score += preferenceScore * PREFERENCE_WEIGHT;
+        }
+      }
+
+      return { ...mentor, score: Math.round(score * 100) / 100 };
+    });
+
+    return scoredMentors.sort((a, b) => (b.score || 0) - (a.score || 0));
+  }, [rawMentors, userLanguages, preferences]);
+
+  const issues = useMemo(() => {
+    if (rawIssues.length === 0) {
+      return rawIssues;
+    }
+
+    if (userLanguages.length === 0) {
+      return rawIssues.map((issue) => ({ ...issue, score: 0 }));
+    }
+
+    const RECENCY_WEIGHT = 0.2;
+    const LANGUAGE_WEIGHT = 0.35;
+    const TOPIC_WEIGHT = 0.45;
+    const MAX_DAYS_FOR_SCORING = 180;
+
+    const userPreferences = Array.isArray(preferences) ? preferences : [];
+
+    const scoredIssues = rawIssues.map((issue) => {
+      let score = 0;
+
+      const daysForScore = Math.min(issue.daysOpen || 0, MAX_DAYS_FOR_SCORING);
       const recencyScore = (1 - daysForScore / MAX_DAYS_FOR_SCORING) * 100;
       score += recencyScore * RECENCY_WEIGHT;
 
-      // 2. LANGUAGE MATCH SCORE (0-35 points)
-      const languageMatch = userLanguages.find(
-        (l) => l.lang.toLowerCase() === issue.primaryLanguage.toLowerCase()
-      );
-      
-      if (languageMatch && userLanguages.length > 0) {
-        const langIndex = userLanguages.findIndex(
+      if (issue.primaryLanguage) {
+        const languageMatch = userLanguages.find(
           (l) => l.lang.toLowerCase() === issue.primaryLanguage.toLowerCase()
         );
-        // Top language gets 100, decreasing linearly
-        const languageScore = ((userLanguages.length - langIndex) / userLanguages.length) * 100;
-        score += languageScore * LANGUAGE_WEIGHT;
+
+        if (languageMatch) {
+          const langIndex = userLanguages.findIndex(
+            (l) => l.lang.toLowerCase() === issue.primaryLanguage.toLowerCase()
+          );
+          const languageScore =
+            ((userLanguages.length - langIndex) / userLanguages.length) * 100;
+          score += languageScore * LANGUAGE_WEIGHT;
+        }
       }
 
-      // 3. TOPIC MATCH SCORE (0-45 points)
-      if (preferences && preferences.length > 0) {
+      if (
+        userPreferences.length > 0 &&
+        issue.repositoryTopics &&
+        Array.isArray(issue.repositoryTopics)
+      ) {
         const topicMatches = issue.repositoryTopics.filter((topic) =>
-          preferences.some((pref: string) => 
-            pref.toLowerCase() === topic.toLowerCase()
+          userPreferences.some(
+            (pref: string) => pref.toLowerCase() === topic.toLowerCase()
           )
         );
-        
+
         if (topicMatches.length > 0) {
-          // Score based on percentage of user preferences matched
-          const topicScore = Math.min((topicMatches.length / preferences.length) * 100, 100);
+          const topicScore = Math.min(
+            (topicMatches.length / userPreferences.length) * 100,
+            100
+          );
           score += topicScore * TOPIC_WEIGHT;
         }
       }
@@ -239,28 +399,26 @@ export default function Home() {
       return { ...issue, score: Math.round(score * 100) / 100 };
     });
 
-    // Sort by score descending and update state
-    const sortedIssues = scoredIssues.sort((a, b) => b.score - a.score);
-    setIssues(sortedIssues);
-    
-    console.log("Top 5 scored issues:", sortedIssues.slice(0, 5).map(i => ({
-      title: i.issueTitle,
-      score: i.score,
-      language: i.primaryLanguage,
-      topics: i.repositoryTopics,
-      days: i.daysOpen
-    })));
+    return scoredIssues.sort((a, b) => (b.score || 0) - (a.score || 0));
+  }, [rawIssues, userLanguages, preferences]);
 
-    // Extract and aggregate repository information
+  const repositories = useMemo(() => {
+    if (issues.length === 0) {
+      return [];
+    }
+
     const repoMap = new Map<string, Repository>();
-    
-    sortedIssues.forEach((issue) => {
+
+    issues.forEach((issue) => {
       const repoKey = `${issue.repositoryOwner}/${issue.repositoryName}`;
-      
+
       if (repoMap.has(repoKey)) {
         const existing = repoMap.get(repoKey)!;
         existing.issueCount += 1;
-        existing.averageScore = (existing.averageScore * (existing.issueCount - 1) + issue.score) / existing.issueCount;
+        const issueScore = issue.score || 0;
+        existing.averageScore =
+          (existing.averageScore * (existing.issueCount - 1) + issueScore) /
+          existing.issueCount;
       } else {
         repoMap.set(repoKey, {
           repositoryOwner: issue.repositoryOwner,
@@ -268,96 +426,260 @@ export default function Home() {
           repositoryTopics: issue.repositoryTopics,
           primaryLanguage: issue.primaryLanguage,
           issueCount: 1,
-          averageScore: issue.score,
+          averageScore: issue.score || 0,
         });
       }
     });
 
-    // Convert map to array and sort by average score
-    const repoArray = Array.from(repoMap.values()).sort(
+    return Array.from(repoMap.values()).sort(
       (a, b) => b.averageScore - a.averageScore
     );
-    
-    setRepositories(repoArray);
-    
-    console.log("Top 5 repositories:", repoArray.slice(0, 5).map(r => ({
-      name: `${r.repositoryOwner}/${r.repositoryName}`,
-      issueCount: r.issueCount,
-      averageScore: r.averageScore,
-    })));
-  }
+  }, [issues]);
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-lg">Loading...</p>
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ backgroundColor: "#001E1E" }}
+      >
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-white border-t-transparent mb-4"></div>
+          <p className="text-lg text-white">
+            Loading your personalized feed...
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto p-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-4">Home Page</h1>
-        {session ? (
-          <div>
-            <div className="flex items-center justify-between mb-6">
-              <p className="text-lg">Welcome, {session.user.email}!</p>
-              <button
-                onClick={signOut}
-                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-              >
-                Sign Out
-              </button>
+    <div className="min-h-screen" style={{ backgroundColor: "#001E1E" }}>
+      {/* Header */}
+      <div
+        className="border-b shadow-sm"
+        style={{ backgroundColor: "#00312F", borderColor: "#014848" }}
+      >
+        <div className="container mx-auto px-6 py-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-white mb-2">
+                Your GitHub Feed
+              </h1>
+              {session && (
+                <p className="text-gray-200">
+                  Welcome back, {username || session.user.email}!
+                </p>
+              )}
             </div>
+            {session && (
+              <div className="flex items-center gap-3">
+                <a
+                  href="/settings"
+                  className="px-6 py-2 text-white rounded-lg font-medium transition-all duration-200 hover:scale-105"
+                  style={{ backgroundColor: "#005858" }}
+                >
+                  <Settings></Settings>
+                </a>
+                <button
+                  onClick={signOut}
+                  className="px-6 py-2 text-white rounded-lg font-medium transition-all duration-200 hover:scale-105"
+                  style={{ backgroundColor: "#8B0000" }}
+                >
+                  <LogOut></LogOut>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="container mx-auto px-6 py-8">
+        {session ? (
+          <>
+            {/* Mentor Recommendations Section */}
+            {mentors.length > 0 && (
+              <div className="mb-12">
+                <h2 className="text-2xl font-bold text-white mb-6">
+                  Recommended Mentors
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {mentors.slice(0, 3).map((mentor) => (
+                    <div
+                      key={mentor.id}
+                      className="rounded-xl p-6 shadow-md border transition-all duration-300 hover:shadow-xl hover:scale-105"
+                      style={{
+                        backgroundColor: "#014848",
+                        borderColor: "#005858",
+                      }}
+                    >
+                      <div className="flex items-center mb-4">
+                        <div
+                          className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-xl mr-3"
+                          style={{ backgroundColor: "#005858" }}
+                        >
+                          {mentor.username.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-lg font-semibold text-white">
+                            {mentor.username}
+                          </h3>
+                          <p className="text-sm text-gray-300">
+                            {mentor.email}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Match Score */}
+                      <div
+                        className="mb-4 px-3 py-2 rounded-lg"
+                        style={{ backgroundColor: "#005858" }}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-white">
+                            Match Score
+                          </span>
+                          <span className="text-lg font-bold text-white">
+                            {mentor.score !== undefined
+                              ? mentor.score.toFixed(1)
+                              : "0.0"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Languages */}
+                      {mentor.languages && mentor.languages.length > 0 && (
+                        <div className="mb-4">
+                          <span className="text-xs font-medium text-gray-200 mb-2 block">
+                            Languages:
+                          </span>
+                          <div className="flex flex-wrap gap-2">
+                            {mentor.languages.slice(0, 3).map((lang) => (
+                              <span
+                                key={lang.lang}
+                                className="px-2 py-1 rounded-md text-xs font-medium text-white"
+                                style={{ backgroundColor: "#00312F" }}
+                              >
+                                {lang.lang}
+                              </span>
+                            ))}
+                            {mentor.languages.length > 3 && (
+                              <span className="text-xs text-gray-300 py-1">
+                                +{mentor.languages.length - 3} more
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Preferences */}
+                      {mentor.preferences && mentor.preferences.length > 0 && (
+                        <div className="mb-4">
+                          <span className="text-xs font-medium text-gray-200 mb-2 block">
+                            Interests:
+                          </span>
+                          <div className="flex flex-wrap gap-2">
+                            {mentor.preferences.slice(0, 4).map((pref) => (
+                              <span
+                                key={pref}
+                                className="px-2 py-1 rounded-md text-xs font-medium text-white"
+                                style={{ backgroundColor: "#00312F" }}
+                              >
+                                {pref}
+                              </span>
+                            ))}
+                            {mentor.preferences.length > 4 && (
+                              <span className="text-xs text-gray-300 py-1">
+                                +{mentor.preferences.length - 4} more
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex gap-3 mt-4">
+                        <a
+                          href={`https://github.com/${mentor.username}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white text-center transition-all duration-200 hover:scale-105"
+                          style={{ backgroundColor: "#005858" }}
+                        >
+                          View Profile
+                        </a>
+                        <button
+                          onClick={() =>
+                            handleEmailMentor(mentor.email, mentor.username)
+                          }
+                          className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition-all duration-200 hover:scale-105"
+                          style={{ backgroundColor: "#00312F" }}
+                        >
+                          Email Mentor
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Repository Recommendations Section */}
             {repositories.length > 0 && (
               <div className="mb-12">
-                <h2 className="text-2xl font-bold mb-4">Recommended Repositories</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <h2 className="text-2xl font-bold text-white mb-6">
+                  Recommended Repositories
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {repositories.slice(0, 6).map((repo) => (
                     <div
                       key={`${repo.repositoryOwner}/${repo.repositoryName}`}
-                      className="bg-white rounded-lg shadow-md p-4 hover:shadow-lg transition-shadow"
+                      className="rounded-xl p-6 shadow-md border transition-all duration-300 hover:shadow-xl hover:scale-105"
+                      style={{
+                        backgroundColor: "#014848",
+                        borderColor: "#005858",
+                      }}
                     >
                       <a
                         href={`https://github.com/${repo.repositoryOwner}/${repo.repositoryName}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-lg text-blue-600 hover:underline font-semibold block mb-2"
+                        className="text-lg font-semibold block mb-3 transition-colors text-white hover:opacity-80"
                       >
                         {repo.repositoryOwner}/{repo.repositoryName}
                       </a>
-                      
-                      <div className="mb-3">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+
+                      <div className="mb-4 flex items-center gap-3">
+                        <span
+                          className="px-3 py-1 rounded-full text-xs font-medium text-white"
+                          style={{ backgroundColor: "#005858" }}
+                        >
                           {repo.primaryLanguage}
                         </span>
-                        <span className="ml-2 text-sm text-gray-600">
-                          {repo.issueCount} {repo.issueCount === 1 ? 'issue' : 'issues'}
+                        <span className="text-sm text-gray-200">
+                          {repo.issueCount}{" "}
+                          {repo.issueCount === 1 ? "issue" : "issues"}
                         </span>
                       </div>
 
                       {repo.repositoryTopics.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-3">
+                        <div className="flex flex-wrap gap-2 mb-4">
                           {repo.repositoryTopics.slice(0, 4).map((topic) => (
                             <span
                               key={topic}
-                              className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-700"
+                              className="px-2 py-1 rounded-md text-xs font-medium text-white"
+                              style={{ backgroundColor: "#00312F" }}
                             >
                               {topic}
                             </span>
                           ))}
                           {repo.repositoryTopics.length > 4 && (
-                            <span className="text-xs text-gray-500">
+                            <span className="text-xs text-gray-300">
                               +{repo.repositoryTopics.length - 4} more
                             </span>
                           )}
                         </div>
                       )}
 
-                      <div className="text-sm text-gray-500">
+                      <div className="text-sm font-medium text-gray-200">
                         Match Score: {repo.averageScore.toFixed(1)}
                       </div>
                     </div>
@@ -368,43 +690,48 @@ export default function Home() {
 
             {/* Issues Section */}
             <div className="mb-8">
-              <h2 className="text-2xl font-bold mb-4">Recommended Issues</h2>
+              <h2 className="text-2xl font-bold text-white mb-6">
+                Recommended Issues
+              </h2>
               <div className="space-y-6">
                 {issues.map((issue) => (
-                  <article
+                  <div
                     key={`${issue.repositoryOwner}-${issue.repositoryName}-${issue.issueNumber}`}
-                    className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow"
+                    className="rounded-xl p-6 shadow-md border transition-all duration-300 hover:shadow-xl"
+                    style={{
+                      backgroundColor: "#005858",
+                      borderColor: "#014848",
+                    }}
                   >
                     {/* Repository Info */}
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex-1">
+                    <div className="mb-4">
+                      <a
+                        href={`https://github.com/${issue.repositoryOwner}/${issue.repositoryName}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium transition-colors text-white hover:opacity-80"
+                      >
+                        {issue.repositoryOwner}/{issue.repositoryName}
+                      </a>
+                      <h2 className="text-xl font-semibold text-white mt-2">
                         <a
-                          href={`https://github.com/${issue.repositoryOwner}/${issue.repositoryName}`}
+                          href={issue.issueUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-sm text-blue-600 hover:underline font-medium"
+                          className="hover:opacity-80 transition-opacity"
                         >
-                          {issue.repositoryOwner}/{issue.repositoryName}
+                          {issue.issueTitle}
                         </a>
-                        <h2 className="text-xl font-semibold text-gray-900 mt-1">
-                          <a
-                            href={issue.issueUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="hover:text-blue-600 transition-colors"
-                          >
-                            {issue.issueTitle}
-                          </a>
-                        </h2>
-                        <p className="text-sm text-gray-500 mt-1">
-                          #{issue.issueNumber} opened {issue.daysOpen} days ago • Match Score: {issue.score}
-                        </p>
-                      </div>
+                      </h2>
+                      <p className="text-sm text-gray-200 mt-1">
+                        #{issue.issueNumber} opened {issue.daysOpen} days ago •
+                        Match Score: {issue.score}
+                      </p>
                     </div>
 
                     {/* Issue Body Preview */}
                     {issue.issueBody && (
-                      <p className="text-gray-700 mb-4 line-clamp-3">
+                      <p className="text-gray-100 mb-4 line-clamp-3">
                         {issue.issueBody.substring(0, 200)}
                         {issue.issueBody.length > 200 ? "..." : ""}
                       </p>
@@ -412,16 +739,19 @@ export default function Home() {
 
                     {/* Languages */}
                     <div className="mb-4">
-                      <span className="text-sm font-medium text-gray-700 mr-2">
+                      <span className="text-sm font-medium text-gray-200 mr-2">
                         Primary Language:
                       </span>
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                      <span
+                        className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium text-white"
+                        style={{ backgroundColor: "#014848" }}
+                      >
                         {issue.primaryLanguage}
                       </span>
 
                       {issue.allLanguages.length > 1 && (
                         <div className="mt-2">
-                          <span className="text-sm text-gray-600">
+                          <span className="text-sm text-gray-200">
                             Also uses:{" "}
                             {issue.allLanguages
                               .filter((lang) => lang !== issue.primaryLanguage)
@@ -434,14 +764,15 @@ export default function Home() {
                     {/* Topics */}
                     {issue.repositoryTopics?.length > 0 && (
                       <div className="mb-4">
-                        <span className="text-sm font-medium text-gray-700 mr-2">
+                        <span className="text-sm font-medium text-gray-200 mr-2">
                           Topics:
                         </span>
-                        <div className="flex flex-wrap gap-2 mt-1">
+                        <div className="flex flex-wrap gap-2 mt-2">
                           {issue.repositoryTopics.map((topic) => (
                             <span
                               key={topic}
-                              className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-700"
+                              className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium text-white"
+                              style={{ backgroundColor: "#00312F" }}
                             >
                               {topic}
                             </span>
@@ -451,28 +782,35 @@ export default function Home() {
                     )}
 
                     {/* Labels */}
-                    <div className="flex flex-wrap gap-2">
-                      {issue.issueLabels.map((label) => (
-                        <span
-                          key={label}
-                          className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"
-                        >
-                          {label}
-                        </span>
-                      ))}
-                    </div>
+                    {issue.issueLabels.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-4">
+                        {issue.issueLabels.map((label) => (
+                          <span
+                            key={label}
+                            className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium text-white"
+                            style={{ backgroundColor: "#014848" }}
+                          >
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
 
                     {/* Action Button */}
-                    <div className="mt-4 pt-4 border-t border-gray-200">
+                    <div
+                      className="mt-4 pt-4"
+                      style={{ borderTop: "1px solid #014848" }}
+                    >
                       <a
                         href={issue.issueUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition-colors"
+                        className="inline-flex items-center px-6 py-2 rounded-lg text-sm font-medium text-white transition-all duration-200 hover:scale-105"
+                        style={{ backgroundColor: "#014848" }}
                       >
                         View Issue on GitHub
                         <svg
-                          className="ml-2 -mr-1 w-4 h-4"
+                          className="ml-2 w-4 h-4"
                           fill="currentColor"
                           viewBox="0 0 20 20"
                         >
@@ -484,14 +822,26 @@ export default function Home() {
                         </svg>
                       </a>
                     </div>
-                  </article>
+                  </div>
                 ))}
               </div>
             </div>
-          </div>
+          </>
         ) : (
-          <div>
-            <p>You are not logged in</p>
+          <div className="text-center py-12">
+            <div
+              className="rounded-xl p-8 shadow-md inline-block border"
+              style={{ backgroundColor: "#014848", borderColor: "#005858" }}
+            >
+              <p className="text-xl text-white mb-4">You are not logged in</p>
+              <a
+                href="/login"
+                className="inline-block px-6 py-3 text-white rounded-lg font-medium transition-all duration-200 hover:scale-105"
+                style={{ backgroundColor: "#005858" }}
+              >
+                Sign In to Continue
+              </a>
+            </div>
           </div>
         )}
       </div>

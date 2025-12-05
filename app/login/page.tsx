@@ -44,19 +44,24 @@ export default function LoginPage() {
 }
 
   if (loading) {
-    return <div>Loading...</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#001E1E' }}>
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-white border-t-transparent mb-4"></div>
+          <p className="text-lg text-white">Loading login...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
     <>
-    <div className="flex flex-col items-center justify-center min-h-screen text-center bg-gray-50 w-screen">
-      <h1 className="text-5xl font-bold mb-4 pb-[1%]">Welcome to gitTogether</h1>
-      <button onClick={signInWithGithub} className=" bg-black text-white rounded-lg hover:bg-gray-700 p-2.5">
+    <div className="flex flex-col items-center justify-center min-h-screen text-center bg-[#001E1E] w-screen">
+      <h1 className="text-5xl font-bold mb-4 pb-[1%] text-white">Welcome to gitTogether</h1>
+      <button onClick={signInWithGithub} className=" bg-[#005858] text-white rounded-lg p-2.5"> {/* TODO: add this back in maybe idk -> hover:bg-[#014848] */}
         Sign in with GitHub
       </button>
     </div>
     </>
   );
 }
-
-// TODO: add video background (someone coding or something like that)

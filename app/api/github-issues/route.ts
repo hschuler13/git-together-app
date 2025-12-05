@@ -1,7 +1,5 @@
-// app/api/github-issues/route.ts
 import { NextResponse } from 'next/server';
 
-// Popular OSS repositories to fetch from
 const REPOSITORIES = [
   'microsoft/vscode',
   'facebook/react',
@@ -15,7 +13,6 @@ const REPOSITORIES = [
   'django/django'
 ];
 
-// Good first issue labels to search for
 const GFI_LABELS = [
   'good first issue',
   'good-first-issue',
@@ -111,20 +108,18 @@ async function fetchIssuesFromRepository(repo: string): Promise<GitHubIssue[]> {
   const [owner, name] = repo.split('/');
   
   try {
-    // Fetch repository details
     const repoDetails = await fetchRepositoryDetails(owner, name);
     const allLanguages = await fetchRepositoryLanguages(owner, name);
     
-    // Fetch issues with good first issue labels
     const issues = await fetchWithAuth(
       `https://api.github.com/repos/${repo}/issues?state=open&labels=good%20first%20issue&per_page=100`
     );
     
     const processedIssues: GitHubIssue[] = issues
       .filter((issue: any) => 
-        !issue.pull_request && // Exclude pull requests
-        issue.assignees.length === 0 && // Only unassigned issues
-        hasGoodFirstIssueLabel(issue.labels) // Verify GFI label
+        !issue.pull_request && 
+        issue.assignees.length === 0 && 
+        hasGoodFirstIssueLabel(issue.labels) 
       )
       .map((issue: any) => ({
         issueUrl: issue.html_url,
@@ -153,11 +148,9 @@ async function fetchIssuesFromRepository(repo: string): Promise<GitHubIssue[]> {
 
 export async function GET() {
   try {
-    // Fetch issues from all repositories in parallel
     const issuesPromises = REPOSITORIES.map(repo => fetchIssuesFromRepository(repo));
     const issuesArrays = await Promise.all(issuesPromises);
     
-    // Flatten and sort by days open (newest first)
     const allIssues = issuesArrays
       .flat()
       .sort((a, b) => a.daysOpen - b.daysOpen);
